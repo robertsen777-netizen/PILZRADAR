@@ -51,7 +51,7 @@ class _LoginPageState extends State<LoginPage> {
     const Icon(Icons.forest,size:80,color:Colors.green),TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'E-Mail')),
     TextField(controller:pass,obscureText:true,decoration:const InputDecoration(labelText:'Passwort (mindestens 6 Zeichen)')),
     const SizedBox(height:20),FilledButton(onPressed:busy?null:submit,child:Text(register?'Registrieren':'Anmelden')),
-    TextButton(onPressed:()=>setState(()=>register=!register),child:Text(register?'Bereits registriert? Anmelden':'Neues Konto erstellen'))]))));
+    TextButton(onPressed:()=>setState(()=>register=!register),child:Text(register?'Bereits registriert? Anmelden':'Neues Konto erstellen'))])))));
 }
 class HomePage extends StatefulWidget {const HomePage({super.key});@override State<HomePage> createState()=>_HomePageState();}
 class _HomePageState extends State<HomePage> {
