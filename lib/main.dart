@@ -86,7 +86,28 @@ class _HomePageState extends State<HomePage> {
           catch(e){if(c.mounted)ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text('$e')));}
         },child:const Text('Hinzufügen'))]));
   }
-  Future<void> selectTeam(String id)async{if(tracking)await toggleTracking();final p=await SharedPreferences.getInstance();await p.setString('team',id);setState((){teamId=id;tab=0;});}
+  
+Future<void> selectTeam(String id) async {
+  if (tracking) {
+    timer?.cancel();
+    tracking = false;
+  }
+
+  if (!mounted) return;
+
+  setState(() {
+    teamId = id;
+    tab = 0;
+  });
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('team', id);
+  } catch (e) {
+    debugPrint('Team speichern fehlgeschlagen: $e');
+  }
+}
+
   Future<void> sos()async{if(teamId==null)return;await locate();if(pos==null)return;
     await db.collection('teams').doc(teamId).collection('messages').add({'uid':uid,'text':'🆘 SOS! Ich brauche Hilfe. Standort: ${pos!.latitude}, ${pos!.longitude}','createdAt':FieldValue.serverTimestamp(),'sos':true});
     if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('SOS an Teamchat gesendet. Bei akuter Gefahr 112 anrufen!')));
