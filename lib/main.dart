@@ -95,6 +95,7 @@ Future<void> createTeam() async {
   icon: const Icon(Icons.group_add),
   label: const Text('Team beitreten'),
 ),
+),
         FilledButton(
           onPressed: () async {
             if (name.text.trim().isEmpty) return;
