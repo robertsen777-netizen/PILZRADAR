@@ -18,6 +18,17 @@ jobs:
         run: |
           python3 scripts/patch_android.py
       - name: Dependencies
+      
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Generate App Icon
+        run: dart run flutter_launcher_icons
+
+      - name: Build APK
+        run: |
+          flutter build apk --release \
+
         run: flutter pub get
       - name: Build APK
         run: |
@@ -29,8 +40,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: PILZRADAR-Android-APK
-          
-      - name: Generate App Icon
-        run: dart run flutter_launcher_icons
 
           path: build/app/outputs/flutter-apk/app-release.apk
