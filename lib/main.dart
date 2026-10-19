@@ -47,12 +47,60 @@ class _LoginPageState extends State<LoginPage> {
     if(register) {await FirebaseAuth.instance.createUserWithEmailAndPassword(email:email.text.trim(),password:pass.text);}
     else {await FirebaseAuth.instance.signInWithEmailAndPassword(email:email.text.trim(),password:pass.text);}
   } catch(e) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));} finally {if(mounted)setState(()=>busy=false);} }
-  @override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:const Text('PILZRADAR')),body:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:420),child:Padding(padding:const EdgeInsets.all(20),child:Column(mainAxisSize:MainAxisSize.min,children:[
-    const Icon(Icons.forest,size:80,color:Colors.green),TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'E-Mail')),
-    TextField(controller:pass,obscureText:true,decoration:const InputDecoration(labelText:'Passwort (mindestens 6 Zeichen)')),
-    const SizedBox(height:20),FilledButton(onPressed:busy?null:submit,child:Text(register?'Registrieren':'Anmelden')),
-    TextButton(onPressed:()=>setState(()=>register=!register),child:Text(register?'Bereits registriert? Anmelden':'Neues Konto erstellen'))]))));
+  
+@override
+Widget build(BuildContext c) => Scaffold(
+  appBar: AppBar(
+    title: const Text('PILZRADAR'),
+  ),
+  body: Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.forest,
+              size: 80,
+              color: Colors.green,
+            ),
+            TextField(
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'E-Mail',
+              ),
+            ),
+            TextField(
+              controller: pass,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Passwort (mindestens 6 Zeichen)',
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: busy ? null : submit,
+              child: Text(register ? 'Registrieren' : 'Anmelden'),
+            ),
+            TextButton(
+              onPressed: () => setState(() => register = !register),
+              child: Text(
+                register
+                    ? 'Bereits registriert? Anmelden'
+                    : 'Neues Konto erstellen',
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  ),
+);
 }
+
 class HomePage extends StatefulWidget {const HomePage({super.key});@override State<HomePage> createState()=>_HomePageState();}
 class _HomePageState extends State<HomePage> {
   String? teamId; int tab=0; Position? pos; LatLng? start; Timer? timer; bool tracking=false;
