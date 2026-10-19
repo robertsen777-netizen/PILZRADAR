@@ -39,7 +39,7 @@ class PilzApp extends StatelessWidget {
     home: firebaseKey.isEmpty ? const SetupPage() : StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, s) => s.data == null
-          ? const LoginPage() : const HomePage(),
+          ? const LoginPage() : const ProfileGate(),
     ),
   );
 }
@@ -131,6 +131,84 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
+// Erstanmeldung: Anzeigename ist Pflicht, auch fuer bestehende Konten.
+class ProfileGate extends StatefulWidget {
+  const ProfileGate({super.key});
+  @override
+  State<ProfileGate> createState() => _ProfileGateState();
+}
+
+class _ProfileGateState extends State<ProfileGate> {
+  final name = TextEditingController();
+  bool saving = false;
+  @override
+  void dispose() { name.dispose(); super.dispose(); }
+
+  Future<void> save() async {
+    final value = name.text.trim();
+    if (value.length < 2 || value.length > 40) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Bitte einen Namen mit 2 bis 40 Zeichen eingeben.')));
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser!;
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'displayName': value, 'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await user.updateDisplayName(value);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Name speichern fehlgeschlagen: $e')));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return Scaffold(body: Center(
+          child: Text('Profil nicht lesbar: ${snapshot.error}')));
+        if (!snapshot.hasData) return const Scaffold(body:
+          Center(child: CircularProgressIndicator()));
+        final displayName = snapshot.data!.data()?['displayName']?.toString().trim() ?? '';
+        if (displayName.length >= 2) return const HomePage();
+        return Scaffold(
+          appBar: AppBar(title: const Text('Willkommen bei PILZRADAR')),
+          body: Center(child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Padding(padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.badge, size: 60, color: Colors.green),
+                const SizedBox(height: 14),
+                const Text('Wie sollen dich die anderen nennen?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                const Text('Ein Anzeigename ist Pflicht. Dein echter Name ist nicht erforderlich.',
+                  textAlign: TextAlign.center),
+                const SizedBox(height: 18),
+                TextField(controller: name, maxLength: 40,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Dein Anzeigename',
+                    border: OutlineInputBorder())),
+                FilledButton(onPressed: saving ? null : save,
+                  child: Text(saving ? 'Speichere…' : 'Weiter zu PILZRADAR')),
+                TextButton(onPressed: () => FirebaseAuth.instance.signOut(),
+                  child: const Text('Abmelden')),
+              ])),
+          )),
+        );
+      },
+    );
+  }
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -144,6 +222,8 @@ class _HomePageState extends State<HomePage> {
   LatLng? start;
   Timer? timer;
   bool tracking = false;
+  final Map<String, String> names = {};
+  String get myName => names[uid] ?? FirebaseAuth.instance.currentUser?.displayName ?? 'Ich';
   final db = FirebaseFirestore.instance;
   String get uid => FirebaseAuth.instance.currentUser!.uid;
 
@@ -153,6 +233,44 @@ class _HomePageState extends State<HomePage> {
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) setState(() => teamId = prefs.getString('team'));
+  }
+
+  Future<void> loadNames(Iterable<String> ids) async {
+    final missing = ids.where((id) => id.isNotEmpty && !names.containsKey(id)).toSet();
+    if (missing.isEmpty) return;
+    for (final id in missing) {
+      try {
+        final doc = await db.collection('users').doc(id).get();
+        names[id] = doc.data()?['displayName']?.toString() ?? 'Mitglied';
+      } catch (_) { names[id] = 'Mitglied'; }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> editName() async {
+    final controller = TextEditingController(text: myName);
+    await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Anzeigenamen ändern'),
+      content: TextField(controller: controller, maxLength: 40,
+        decoration: const InputDecoration(labelText: 'Anzeigename')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
+        FilledButton(onPressed: () async {
+          final value = controller.text.trim();
+          if (value.length < 2 || value.length > 40) return;
+          try {
+            await db.collection('users').doc(uid).set({
+              'displayName': value, 'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+            await FirebaseAuth.instance.currentUser!.updateDisplayName(value);
+            names[uid] = value;
+            if (ctx.mounted) Navigator.pop(ctx);
+            if (mounted) setState(() {});
+          } catch (e) { notify('Name ändern fehlgeschlagen: $e'); }
+        }, child: const Text('Speichern')),
+      ],
+    ));
+    controller.dispose();
   }
 
   void notify(String message) {
@@ -396,11 +514,15 @@ class _HomePageState extends State<HomePage> {
         return ListTile(title: Text('Anfragen nicht lesbar: ${snapshot.error}'));
       }
       final requests = snapshot.data?.docs ?? [];
+      if (requests.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) =>
+          loadNames(requests.map((r) => r.id)));
+      }
       if (requests.isEmpty) return const SizedBox.shrink();
       return Column(children: [
         const ListTile(title: Text('Offene Beitrittsanfragen')),
         ...requests.map((request) => ListTile(
-          title: Text('Nutzer: ${request.id.substring(0, min(8, request.id.length))}…'),
+          title: Text(names[request.id] ?? 'Mitglied wird geladen…'),
           subtitle: const Text('Moechte dem Team beitreten'),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
@@ -416,6 +538,45 @@ class _HomePageState extends State<HomePage> {
       ]);
     },
   );
+
+  Widget membersForTeam(String id, Map<String, dynamic> data) {
+    final ids = List<String>.from(data['members'] ?? []);
+    WidgetsBinding.instance.addPostFrameCallback((_) => loadNames(ids));
+    return ExpansionTile(
+      leading: const Icon(Icons.people_outline),
+      title: Text('Mitglieder (${ids.length})'),
+      children: ids.map((memberId) => ListTile(
+        title: Text(memberId == uid ? '${names[memberId] ?? myName} (du)'
+          : names[memberId] ?? 'Mitglied wird geladen…'),
+        subtitle: memberId == data['owner'] ? const Text('Teamleiter') : null,
+        trailing: data['owner'] == uid && memberId != uid
+          ? IconButton(tooltip: 'Mitglied entfernen',
+              icon: const Icon(Icons.person_remove),
+              onPressed: () => removeMember(id, memberId)) : null,
+      )).toList(),
+    );
+  }
+
+  Future<void> removeMember(String team, String memberId) async {
+    final confirmed = await showDialog<bool>(context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mitglied entfernen?'),
+        content: Text('${names[memberId] ?? 'Dieses Mitglied'} aus dem Team entfernen?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Entfernen')),
+        ],
+      ));
+    if (confirmed != true) return;
+    try {
+      await db.collection('teams').doc(team).update({
+        'members': FieldValue.arrayRemove([memberId]),
+      });
+      notify('Mitglied entfernt.');
+    } catch (e) { notify('Entfernen fehlgeschlagen: $e'); }
+  }
 
   Future<void> selectTeam(String id) async {
     if (tracking) {
@@ -447,6 +608,8 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('🍄 PILZRADAR'), actions: [
+      IconButton(tooltip: 'Mein Anzeigename', onPressed: editName,
+        icon: const Icon(Icons.account_circle)),
       IconButton(onPressed: () => FirebaseAuth.instance.signOut(),
         icon: const Icon(Icons.logout)),
     ]),
@@ -533,6 +696,7 @@ class _HomePageState extends State<HomePage> {
                 label: const Text('Teamcode erzeugen'),
               ),
             if (owner) requestsForTeam(doc.id),
+            membersForTeam(doc.id, data),
           ]));
         }),
         const SizedBox(height: 16),
@@ -571,6 +735,8 @@ class _HomePageState extends State<HomePage> {
       builder: (c, s) {
         final members = s.data?.docs ?? [];
         final points = members.where((e) => e.data()['lat'] != null).toList();
+        WidgetsBinding.instance.addPostFrameCallback((_) =>
+          loadNames(points.map((p) => p.id)));
         final center = pos == null ? const LatLng(51.15, 11.8)
             : LatLng(pos!.latitude, pos!.longitude);
         return FlutterMap(
@@ -589,7 +755,7 @@ class _HomePageState extends State<HomePage> {
                 width: 90, height: 70,
                 child: Column(children: [
                   const Icon(Icons.person_pin_circle, color: Colors.green, size: 34),
-                  Text(e.id == uid ? 'Ich' : e.id.substring(0, min(6, e.id.length)),
+                  Text(e.id == uid ? 'Ich' : names[e.id] ?? 'Mitglied',
                     style: const TextStyle(fontSize: 10)),
                 ]),
               )),
@@ -664,13 +830,18 @@ class _HomePageState extends State<HomePage> {
     return Column(children: [
       Expanded(child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: ref.orderBy('createdAt', descending: true).limit(100).snapshots(),
-        builder: (c, s) => ListView(children: (s.data?.docs ?? []).map((doc) {
+        builder: (c, s) {
+          final docs = s.data?.docs ?? [];
+          WidgetsBinding.instance.addPostFrameCallback((_) =>
+            loadNames(docs.map((d) => '${d.data()['uid'] ?? ''}')));
+          return ListView(children: docs.map((doc) {
           final data = doc.data();
           final sender = '${data['uid'] ?? ''}';
           return ListTile(title: Text('${data['text'] ?? ''}'),
             subtitle: Text(sender == uid ? 'Ich'
-              : sender.substring(0, min(6, sender.length))));
-        }).toList()),
+              : names[sender] ?? 'Mitglied'));
+        }).toList());
+        },
       )),
       Row(children: [
         Expanded(child: TextField(controller: input,
