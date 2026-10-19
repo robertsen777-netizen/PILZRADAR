@@ -29,4 +29,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: PILZRADAR-Android-APK
+          
+      - name: Generate App Icon
+        run: dart run flutter_launcher_icons
+
           path: build/app/outputs/flutter-apk/app-release.apk
