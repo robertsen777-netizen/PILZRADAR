@@ -104,8 +104,7 @@ class _LoginPageState extends State<LoginPage> {
             child: Text(register ? 'Registrieren' : 'Anmelden')),
           TextButton(onPressed: () => setState(() => register = !register),
             child: Text(register ? 'Bereits registriert? Anmelden' : 'Neues Konto erstellen')),
-        ]))),
-    )),
+              ])),
   );
 }
 
