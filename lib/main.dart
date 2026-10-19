@@ -71,10 +71,63 @@ class _HomePageState extends State<HomePage> {
     if(teamId!=null)await db.collection('teams').doc(teamId).collection('locations').doc(uid).delete();
   }else{await share();if(pos==null)return;setState(()=>tracking=true);timer=Timer.periodic(const Duration(seconds:20),(_)=>share());}}
   @override void dispose(){timer?.cancel();super.dispose();}
-  Future<void> createTeam() async {final name=TextEditingController();await showDialog(context:context,builder:(c)=>AlertDialog(title:const Text('Team erstellen'),content:TextField(controller:name,decoration:const InputDecoration(labelText:'Teamname')),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Abbrechen')),FilledButton(onPressed:()async {if(name.text.trim().isEmpty)return;
-    final ref=await db.collection('teams').add({'name':name.text.trim(),'owner':uid,'members':[uid],'createdAt':FieldValue.serverTimestamp()});
-    if(c.mounted)Navigator.pop(c);await selectTeam(ref.id);
-  },child:const Text('Erstellen'))]));}
+  
+Future<void> createTeam() async {
+  final name = TextEditingController();
+
+  await showDialog(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('Team erstellen'),
+      content: TextField(
+        controller: name,
+        decoration: const InputDecoration(
+          labelText: 'Teamname',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c),
+          child: const Text('Abbrechen'),
+        ),
+        FilledButton(
+          onPressed: () async {
+            if (name.text.trim().isEmpty) return;
+
+            final ref = db.collection('teams').doc();
+
+            // Teamcode aus zufälliger Firestore-ID
+            final code = ref.id.substring(0, 6).toUpperCase();
+
+            await ref.set({
+              'name': name.text.trim(),
+              'owner': uid,
+              'members': [uid],
+              'code': code,
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+
+            if (c.mounted) Navigator.pop(c);
+            await selectTeam(ref.id);
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Team erstellt! Code: $code'),
+                  duration: const Duration(seconds: 10),
+                ),
+              );
+            }
+          },
+          child: const Text('Erstellen'),
+        ),
+      ],
+    ),
+  );
+
+  name.dispose();
+}
+
   Future<void> inviteMember(QueryDocumentSnapshot<Map<String,dynamic>> doc) async {
     if(doc.data()['owner']!=uid){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Nur der Teamleiter kann Mitglieder hinzufügen.')));return;}
     final ctrl=TextEditingController();
