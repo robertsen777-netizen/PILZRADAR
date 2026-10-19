@@ -85,10 +85,13 @@ Future<void> createTeam() async {
           labelText: 'Teamname',
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('Abbrechen'),
+      
+actions: [
+  TextButton(
+    onPressed: () => Navigator.pop(c),
+    child: const Text('Abbrechen'),
+  ),
+  FilledButton(
         ),
         FilledButton.icon(
   onPressed: joinTeam,
