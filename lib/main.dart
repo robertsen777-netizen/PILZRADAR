@@ -402,7 +402,7 @@ class _HomePageState extends State<HomePage> {
         ...requests.map((request) => ListTile(
           title: Text('Nutzer: ${request.id.substring(0, min(8, request.id.length))}…'),
           subtitle: const Text('Moechte dem Team beitreten'),
-          trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
               tooltip: 'Freigeben', icon: const Icon(Icons.check, color: Colors.green),
               onPressed: () => reviewRequest(id, request.id, approve: true),
