@@ -91,14 +91,18 @@ actions: [
     onPressed: () => Navigator.pop(c),
     child: const Text('Abbrechen'),
   ),
+  
+actions: [
+  TextButton(
+    onPressed: () => Navigator.pop(c),
+    child: const Text('Abbrechen'),
+  ),
   FilledButton(
-        ),
-        FilledButton.icon(
-  onPressed: joinTeam,
-  icon: const Icon(Icons.group_add),
-  label: const Text('Team beitreten'),
-),
-),
+    onPressed: () async {
+      if (name.text.trim().isEmpty) return;
+
+      final ref = db.collection('teams').doc();
+
         FilledButton(
           onPressed: () async {
             if (name.text.trim().isEmpty) return;
