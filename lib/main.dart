@@ -128,6 +128,100 @@ Future<void> createTeam() async {
   name.dispose();
 }
 
+Future<void> joinTeam() async {
+  final codeController = TextEditingController();
+  bool joining = false;
+
+  await showDialog(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) => AlertDialog(
+        title: const Text('Team beitreten'),
+        content: TextField(
+          controller: codeController,
+          textCapitalization: TextCapitalization.characters,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            labelText: '6-stelliger Teamcode',
+            hintText: 'z.B. AB12CD',
+            prefixIcon: Icon(Icons.group_add),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: joining
+                ? null
+                : () => Navigator.pop(dialogContext),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: joining
+                ? null
+                : () async {
+                    final code =
+                        codeController.text.trim().toUpperCase();
+
+                    if (code.length != 6) return;
+
+                    setDialogState(() => joining = true);
+
+                    try {
+                      final result = await db
+                          .collection('teams')
+                          .where('code', isEqualTo: code)
+                          .limit(1)
+                          .get();
+
+                      if (result.docs.isEmpty) {
+                        throw Exception('Teamcode nicht gefunden');
+                      }
+
+                      final team = result.docs.first;
+
+                      await db
+                          .collection('teams')
+                          .doc(team.id)
+                          .update({
+                        'members': FieldValue.arrayUnion([uid]),
+                      });
+
+                      if (dialogContext.mounted) {
+                        Navigator.pop(dialogContext);
+                      }
+
+                      await selectTeam(team.id);
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Team "${team.data()['name']}" beigetreten!',
+                            ),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext)
+                            .showSnackBar(
+                          SnackBar(
+                            content: Text('Beitritt fehlgeschlagen: $e'),
+                          ),
+                        );
+                        setDialogState(() => joining = false);
+                      }
+                    }
+                  },
+            child: const Text('Beitreten'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  codeController.dispose();
+}
+
   Future<void> inviteMember(QueryDocumentSnapshot<Map<String,dynamic>> doc) async {
     if(doc.data()['owner']!=uid){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Nur der Teamleiter kann Mitglieder hinzufügen.')));return;}
     final ctrl=TextEditingController();
