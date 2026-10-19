@@ -1,0 +1,86 @@
+
+name: PILZRADAR 2.3 Web PWA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/build-web.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create web platform files
+        run: flutter create --platforms=web --project-name pilzradar .
+
+      - name: Set PWA metadata
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          from pathlib import Path
+          f = Path('web/manifest.json')
+          d = json.loads(f.read_text())
+          d.update(
+              name='PILZRADAR',
+              short_name='PILZRADAR',
+              description='Gemeinsam Pilze suchen und Teamstandorte teilen',
+              display='standalone',
+              start_url='.',
+              scope='.'
+          )
+          f.write_text(json.dumps(d, ensure_ascii=False, indent=2))
+          index = Path('web/index.html')
+          s = index.read_text().replace(
+              '<title>pilzradar</title>',
+              '<title>PILZRADAR</title>'
+          )
+          index.write_text(s)
+          PYTHON
+
+      - run: flutter pub get
+
+      - name: Build Web
+        env:
+          WEB_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          WEB_APP: ${{ secrets.FIREBASE_WEB_APP_ID }}
+          WEB_SENDER: ${{ secrets.FIREBASE_WEB_SENDER_ID }}
+          WEB_PROJECT: ${{ secrets.FIREBASE_WEB_PROJECT_ID }}
+        run: |
+          test -n "$WEB_KEY" && test -n "$WEB_APP" && test -n "$WEB_SENDER" && test -n "$WEB_PROJECT" || { echo 'Firebase Web Secrets fehlen'; exit 1; }
+          flutter build web --release --base-href /PILZRADAR/ \
+            --dart-define=FIREBASE_API_KEY="$WEB_KEY" \
+            --dart-define=FIREBASE_APP_ID="$WEB_APP" \
+            --dart-define=FIREBASE_SENDER_ID="$WEB_SENDER" \
+            --dart-define=FIREBASE_PROJECT_ID="$WEB_PROJECT"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
