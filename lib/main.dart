@@ -211,7 +211,40 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() { timer?.cancel(); super.dispose(); }
 
-  // Neue Teams erhalten einen sechsstelligen Code.
+  // Ein Code wird zusammen mit seinem geschuetzten Index atomar gespeichert.
+  String newInviteCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    return List.generate(6, (_) => alphabet[random.nextInt(alphabet.length)]).join();
+  }
+
+  Future<void> registerCode(DocumentReference<Map<String, dynamic>> teamRef,
+      {String? name}) async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final code = newInviteCode();
+      final codeRef = db.collection('teamCodes').doc(code);
+      try {
+        await db.runTransaction((transaction) async {
+          final existing = await transaction.get(codeRef);
+          if (existing.exists) throw StateError('Code bereits vergeben');
+          if (name != null) {
+            transaction.set(teamRef, {
+              'name': name, 'owner': uid, 'members': [uid],
+              'code': code, 'createdAt': FieldValue.serverTimestamp(),
+            });
+          } else {
+            transaction.update(teamRef, {'code': code});
+          }
+          transaction.set(codeRef, {'teamId': teamRef.id, 'owner': uid});
+        });
+        return;
+      } on StateError {
+        continue;
+      }
+    }
+    throw StateError('Kein freier Teamcode gefunden. Bitte erneut versuchen.');
+  }
+
   Future<void> createTeam() async {
     final name = TextEditingController();
     bool busy = false;
@@ -230,15 +263,10 @@ class _HomePageState extends State<HomePage> {
               setDialogState(() => busy = true);
               try {
                 final ref = db.collection('teams').doc();
-                final code = ref.id.substring(0, 6).toUpperCase();
-                await ref.set({
-                  'name': name.text.trim(), 'owner': uid,
-                  'members': [uid], 'code': code,
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
+                await registerCode(ref, name: name.text.trim());
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
                 await selectTeam(ref.id);
-                notify('Team erstellt! Code: $code');
+                notify('Team und Einladungscode erstellt.');
               } catch (e) {
                 notify('Team erstellen fehlgeschlagen: $e');
                 if (dialogContext.mounted) setDialogState(() => busy = false);
@@ -251,54 +279,51 @@ class _HomePageState extends State<HomePage> {
     name.dispose();
   }
 
-  // Hinweis: Dieser direkte Firestore-Beitritt benötigt passende Regeln.
-  // Für eine öffentliche App serverseitig über Cloud Functions absichern.
   Future<void> joinTeam() async {
     final codeController = TextEditingController();
-    bool joining = false;
+    bool busy = false;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Team beitreten'),
+          title: const Text('Teambeitritt beantragen'),
           content: TextField(
             controller: codeController,
             textCapitalization: TextCapitalization.characters,
             maxLength: 6,
             decoration: const InputDecoration(
               labelText: '6-stelliger Teamcode',
-              hintText: 'z. B. AB12CD',
               prefixIcon: Icon(Icons.group_add),
             ),
           ),
           actions: [
-            TextButton(onPressed: joining ? null : () => Navigator.pop(dialogContext),
+            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext),
               child: const Text('Abbrechen')),
-            FilledButton(onPressed: joining ? null : () async {
+            FilledButton(onPressed: busy ? null : () async {
               final code = codeController.text.trim().toUpperCase();
-              if (code.length != 6) {
-                notify('Bitte einen 6-stelligen Code eingeben.');
+              if (!RegExp(r'^[A-Z0-9]{6}$').hasMatch(code)) {
+                notify('Bitte einen gueltigen sechsstelligen Code eingeben.');
                 return;
               }
-              setDialogState(() => joining = true);
+              setDialogState(() => busy = true);
               try {
-                final result = await db.collection('teams')
-                    .where('code', isEqualTo: code).limit(1).get();
-                if (result.docs.isEmpty) {
-                  throw Exception('Teamcode nicht gefunden');
-                }
-                final team = result.docs.first;
-                await team.reference.update({
-                  'members': FieldValue.arrayUnion([uid]),
+                final index = await db.collection('teamCodes').doc(code).get();
+                if (!index.exists) throw StateError('Teamcode nicht gefunden');
+                final id = index.data()?['teamId'] as String?;
+                if (id == null) throw StateError('Teamcode ungueltig');
+                final requestRef = db.collection('teams').doc(id)
+                    .collection('joinRequests').doc(uid);
+                await requestRef.set({
+                  'uid': uid, 'status': 'pending', 'code': code,
+                  'createdAt': FieldValue.serverTimestamp(),
                 });
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
-                await selectTeam(team.id);
-                notify('Team "${team.data()['name']}" beigetreten!');
+                notify('Beitrittsanfrage gesendet. Warte auf Freigabe.');
               } catch (e) {
-                notify('Beitritt fehlgeschlagen: $e');
-                if (dialogContext.mounted) setDialogState(() => joining = false);
+                notify('Anfrage fehlgeschlagen: $e');
+                if (dialogContext.mounted) setDialogState(() => busy = false);
               }
-            }, child: const Text('Beitreten')),
+            }, child: const Text('Anfragen')),
           ],
         ),
       ),
@@ -306,18 +331,91 @@ class _HomePageState extends State<HomePage> {
     codeController.dispose();
   }
 
-  // Für bestehende Teams ohne Code: Nur der Eigentümer darf einen Code setzen.
-  Future<void> createMissingCode(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> createMissingCode(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
     if (doc.data()['owner'] != uid) {
-      notify('Nur der Teamleiter kann einen Teamcode erzeugen.');
+      notify('Nur der Teamleiter darf einen Code erzeugen.');
       return;
     }
     try {
-      final code = doc.id.substring(0, 6).toUpperCase();
-      await doc.reference.update({'code': code});
-      notify('Teamcode: $code');
-    } catch (e) { notify('Teamcode konnte nicht erstellt werden: $e'); }
+      await registerCode(doc.reference);
+      notify('Einladungscode erzeugt.');
+    } catch (e) { notify('Code konnte nicht erstellt werden: $e'); }
   }
+
+  // Migriert alte Teams, die bereits einen Code, aber keinen Index besitzen.
+  Future<void> activateExistingCode(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (doc.data()['owner'] != uid) return;
+    final code = doc.data()['code']?.toString();
+    if (code == null || !RegExp(r'^[A-Z0-9]{6}$').hasMatch(code)) {
+      notify('Der alte Code ist ungueltig.');
+      return;
+    }
+    try {
+      final codeRef = db.collection('teamCodes').doc(code);
+      final snapshot = await codeRef.get();
+      if (snapshot.exists) {
+        if (snapshot.data()?['teamId'] == doc.id) {
+          notify('Teamcode ist bereits aktiv.');
+        } else {
+          notify('Code ist bereits vergeben. Bitte Support kontaktieren.');
+        }
+        return;
+      }
+      await codeRef.set({'teamId': doc.id, 'owner': uid});
+      notify('Teamcode aktiviert.');
+    } catch (e) { notify('Aktivierung fehlgeschlagen: $e'); }
+  }
+
+  Future<void> reviewRequest(String id, String applicantUid,
+      {required bool approve}) async {
+    final teamRef = db.collection('teams').doc(id);
+    final requestRef = teamRef.collection('joinRequests').doc(applicantUid);
+    try {
+      final batch = db.batch();
+      if (approve) {
+        batch.update(teamRef, {
+          'members': FieldValue.arrayUnion([applicantUid]),
+        });
+      }
+      batch.update(requestRef, {
+        'status': approve ? 'approved' : 'rejected',
+      });
+      await batch.commit();
+      notify(approve ? 'Mitglied freigegeben.' : 'Anfrage abgelehnt.');
+    } catch (e) { notify('Freigabe fehlgeschlagen: $e'); }
+  }
+
+  Widget requestsForTeam(String id) => StreamBuilder<
+      QuerySnapshot<Map<String, dynamic>>>(
+    stream: db.collection('teams').doc(id).collection('joinRequests')
+        .where('status', isEqualTo: 'pending').snapshots(),
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return ListTile(title: Text('Anfragen nicht lesbar: ${snapshot.error}'));
+      }
+      final requests = snapshot.data?.docs ?? [];
+      if (requests.isEmpty) return const SizedBox.shrink();
+      return Column(children: [
+        const ListTile(title: Text('Offene Beitrittsanfragen')),
+        ...requests.map((request) => ListTile(
+          title: Text('Nutzer: ${request.id.substring(0, min(8, request.id.length))}…'),
+          subtitle: const Text('Moechte dem Team beitreten'),
+          trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              tooltip: 'Freigeben', icon: const Icon(Icons.check, color: Colors.green),
+              onPressed: () => reviewRequest(id, request.id, approve: true),
+            ),
+            IconButton(
+              tooltip: 'Ablehnen', icon: const Icon(Icons.close, color: Colors.red),
+              onPressed: () => reviewRequest(id, request.id, approve: false),
+            ),
+          ]),
+        )),
+      ]);
+    },
+  );
 
   Future<void> selectTeam(String id) async {
     if (tracking) {
@@ -365,8 +463,12 @@ class _HomePageState extends State<HomePage> {
               Expanded(child: Padding(padding: const EdgeInsets.all(12),
                 child: Text('Team: ${data['name']}',
                   overflow: TextOverflow.ellipsis))),
-              TextButton(onPressed: () => setState(() => teamId = null),
-                child: const Text('Wechseln')),
+              TextButton(onPressed: () async {
+                if (tracking) await toggleTracking();
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('team');
+                if (mounted) setState(() => teamId = null);
+              }, child: const Text('Wechseln')),
             ]);
           },
         ),
@@ -409,20 +511,28 @@ class _HomePageState extends State<HomePage> {
               onTap: () => selectTeam(doc.id),
             ),
             if (code != null && code.isNotEmpty)
-              TextButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: code));
-                  notify('Teamcode $code kopiert');
-                },
-                icon: const Icon(Icons.copy),
-                label: const Text('Teamcode kopieren'),
-              )
+              Column(children: [
+                TextButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: code));
+                    notify('Teamcode $code kopiert');
+                  },
+                  icon: const Icon(Icons.copy),
+                  label: const Text('Teamcode kopieren'),
+                ),
+                if (owner) TextButton.icon(
+                  onPressed: () => activateExistingCode(doc),
+                  icon: const Icon(Icons.verified_user),
+                  label: const Text('Teamcode aktivieren (alte Teams)'),
+                ),
+              ])
             else if (owner)
               TextButton.icon(
                 onPressed: () => createMissingCode(doc),
                 icon: const Icon(Icons.vpn_key),
                 label: const Text('Teamcode erzeugen'),
               ),
+            if (owner) requestsForTeam(doc.id),
           ]));
         }),
         const SizedBox(height: 16),
