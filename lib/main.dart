@@ -87,25 +87,48 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() { email.dispose(); pass.dispose(); super.dispose(); }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('PILZRADAR')),
-    body: Center(child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 420),
-      child: Padding(padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.forest, size: 80, color: Colors.green),
-          TextField(controller: email,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'E-Mail')),
-          TextField(controller: pass, obscureText: true,
-            decoration: const InputDecoration(labelText: 'Passwort (mindestens 6 Zeichen)')),
-          const SizedBox(height: 20),
-          FilledButton(onPressed: busy ? null : submit,
-            child: Text(register ? 'Registrieren' : 'Anmelden')),
-          TextButton(onPressed: () => setState(() => register = !register),
-            child: Text(register ? 'Bereits registriert? Anmelden' : 'Neues Konto erstellen')),
-              ])),
-  );
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('PILZRADAR')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.forest, size: 80, color: Colors.green),
+                TextField(
+                  controller: email,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'E-Mail'),
+                ),
+                TextField(
+                  controller: pass,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Passwort (mindestens 6 Zeichen)',
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: busy ? null : submit,
+                  child: Text(register ? 'Registrieren' : 'Anmelden'),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => register = !register),
+                  child: Text(register
+                      ? 'Bereits registriert? Anmelden'
+                      : 'Neues Konto erstellen'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class HomePage extends StatefulWidget {
